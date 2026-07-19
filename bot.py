@@ -64,7 +64,9 @@ def get_permissions_keyboard(admin_id):
 def main_menu(user_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
-    if has_permission(user_id, 'can_add_anime'): markup.add(types.InlineKeyboardButton("➕ إضافة أنمي", callback_data="add_new"))
+    if has_permission(user_id, 'can_add_anime'): 
+        markup.add(types.InlineKeyboardButton("➕ إضافة أنمي", callback_data="add_new"))
+        markup.add(types.InlineKeyboardButton("✏️ تعديل أنمي", callback_data="edit_anime"))
     if has_permission(user_id, 'can_delete_anime'): buttons.append(types.InlineKeyboardButton("➖ حذف أنمي", callback_data="delete_anime"))
     if has_permission(user_id, 'can_manage_admins'): buttons.append(types.InlineKeyboardButton("🛡 المشرفين", callback_data="admin_panel"))
     if has_permission(user_id, 'can_backup'): buttons.append(types.InlineKeyboardButton("💾 نسخ احتياطي", callback_data="backup"))
@@ -102,6 +104,14 @@ def callback_handler(call):
         bot.edit_message_text("القائمة الرئيسية:", call.message.chat.id, call.message.message_id, reply_markup=main_menu(user_id))
         return
     
+    # --- تعديل البيانات ---
+    if call.data == "edit_anime":
+        if has_permission(user_id, 'can_add_anime'):
+            bot.send_message(call.message.chat.id, "أرسل رابط الأنمي الذي تريد تعديله:")
+            bot.register_next_step_handler(call.message, edit_anime_flow)
+        else: bot.answer_callback_query(call.id, "لا تملك صلاحية الإضافة/التعديل!")
+        return
+
     if call.data == "admin_panel":
         if not has_permission(user_id, 'can_manage_admins'):
             bot.answer_callback_query(call.id, "عذراً، ليس لديك صلاحية المشرفين!", show_alert=True)
@@ -209,6 +219,28 @@ def callback_handler(call):
             text = "📋 قائمة الأنميات:\n\n" + "\n".join(animes) if animes else "القائمة فارغة."
             bot.send_message(call.message.chat.id, text)
         else: bot.answer_callback_query(call.id, "لا تملك صلاحية عرض القائمة!")
+
+def edit_anime_flow(message):
+    link = message.text
+    conn = sqlite3.connect('anime.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT names FROM anime WHERE link = ?", (link,))
+    res = cursor.fetchone()
+    conn.close()
+    if not res:
+        bot.reply_to(message, "⚠️ الرابط غير موجود في القاعدة.")
+        return
+    bot.send_message(message.chat.id, f"الأنمي الحالي: {res[0]}\nأرسل الأسماء الجديدة (كل اسم في سطر):")
+    bot.register_next_step_handler(message, lambda m: update_anime_db(m, link))
+
+def update_anime_db(message, link):
+    new_names = message.text.replace(',', '\n')
+    conn = sqlite3.connect('anime.db')
+    cursor = conn.cursor()
+    cursor.execute("UPDATE anime SET names = ? WHERE link = ?", (new_names, link))
+    conn.commit()
+    conn.close()
+    bot.reply_to(message, "✅ تم تحديث بيانات الأنمي بنجاح!")
 
 def process_add_admin(message):
     try:
