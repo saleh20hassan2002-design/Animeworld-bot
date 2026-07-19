@@ -11,15 +11,12 @@ OWNER_ID = 5577477357
 def init_db():
     conn = sqlite3.connect('anime.db')
     cursor = conn.cursor()
-    # إنشاء الجدول الأساسي
-    cursor.execute('''CREATE TABLE IF NOT EXISTS anime (link TEXT PRIMARY KEY, names TEXT, photo_url TEXT)''')
-    
-    # تحديث الجدول تلقائياً إذا كان قديماً (إضافة photo_url)
-    try:
-        cursor.execute("ALTER TABLE anime ADD COLUMN photo_url TEXT")
-    except sqlite3.OperationalError:
-        pass 
-
+    # استخدام جدول anime_v2 الجديد
+    cursor.execute('''CREATE TABLE IF NOT EXISTS anime_v2 (
+        link TEXT PRIMARY KEY, 
+        names TEXT, 
+        photo_url TEXT
+    )''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS admins_v2 (
         user_id INTEGER PRIMARY KEY,
         name TEXT,
@@ -37,8 +34,6 @@ def init_db():
     conn.close()
 
 init_db()
-
-# --- بقية الدوال والمنطق ---
 
 def has_permission(user_id, perm_column):
     if user_id == OWNER_ID: return True
@@ -110,7 +105,7 @@ def callback_handler(call):
     elif call.data == "restore":
         bot.send_message(call.message.chat.id, "أرسل ملف قاعدة البيانات (anime.db) الآن:")
         bot.register_next_step_handler(call.message, process_restore)
-    # [بقية المنطق كما سبق ذكره...]
+    # [بقية الأزرار الأساسية...]
 
 def get_names_for_link(message):
     link = message.text
@@ -126,24 +121,16 @@ def save_anime_data(message, link, photo_url):
     names = message.text.replace(',', '\n')
     conn = sqlite3.connect('anime.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO anime (link, names, photo_url) VALUES (?, ?, ?)", (link, names, photo_url))
+    cursor.execute("INSERT OR REPLACE INTO anime_v2 (link, names, photo_url) VALUES (?, ?, ?)", (link, names, photo_url))
     conn.commit(); conn.close()
     bot.reply_to(message, "✅ تم الحفظ بنجاح!")
-
-def process_restore(message):
-    if message.document:
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        with open('anime.db', 'wb') as new_file: new_file.write(downloaded_file)
-        bot.reply_to(message, "✅ تم الاسترداد!")
-    else: bot.reply_to(message, "⚠️ خطأ: يجب إرسال ملف .db")
 
 @bot.message_handler(func=lambda message: not message.text.startswith('/'))
 def search_anime(message):
     query = message.text.lower().strip()
     conn = sqlite3.connect('anime.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT link, names, photo_url FROM anime")
+    cursor.execute("SELECT link, names, photo_url FROM anime_v2")
     all_anime = cursor.fetchall()
     conn.close()
     for link, names, photo_url in all_anime:
@@ -156,6 +143,14 @@ def search_anime(message):
             except:
                 bot.reply_to(message, f"📺 {names.split('\n')[0]}\n🔗 {link}")
             return
+
+def process_restore(message):
+    if message.document:
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        with open('anime.db', 'wb') as new_file: new_file.write(downloaded_file)
+        bot.reply_to(message, "✅ تم الاسترداد!")
+    else: bot.reply_to(message, "⚠️ خطأ: يجب إرسال ملف .db")
 
 def process_add_admin(message):
     try:
