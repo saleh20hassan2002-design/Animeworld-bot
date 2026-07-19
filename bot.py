@@ -11,7 +11,15 @@ OWNER_ID = 5577477357
 def init_db():
     conn = sqlite3.connect('anime.db')
     cursor = conn.cursor()
+    # إنشاء الجدول الأساسي
     cursor.execute('''CREATE TABLE IF NOT EXISTS anime (link TEXT PRIMARY KEY, names TEXT, photo_url TEXT)''')
+    
+    # تحديث الجدول تلقائياً إذا كان قديماً (إضافة photo_url)
+    try:
+        cursor.execute("ALTER TABLE anime ADD COLUMN photo_url TEXT")
+    except sqlite3.OperationalError:
+        pass 
+
     cursor.execute('''CREATE TABLE IF NOT EXISTS admins_v2 (
         user_id INTEGER PRIMARY KEY,
         name TEXT,
@@ -29,6 +37,8 @@ def init_db():
     conn.close()
 
 init_db()
+
+# --- بقية الدوال والمنطق ---
 
 def has_permission(user_id, perm_column):
     if user_id == OWNER_ID: return True
@@ -138,8 +148,26 @@ def search_anime(message):
     conn.close()
     for link, names, photo_url in all_anime:
         if any(query in n.strip().lower() for n in names.split('\n')):
-            bot.send_photo(message.chat.id, photo_url, caption=f"📺 {names.split('\n')[0]}\n🔗 {link}")
+            try:
+                if photo_url and photo_url.startswith('http'):
+                    bot.send_photo(message.chat.id, photo_url, caption=f"📺 {names.split('\n')[0]}\n🔗 {link}")
+                else:
+                    bot.reply_to(message, f"📺 {names.split('\n')[0]}\n🔗 {link}")
+            except:
+                bot.reply_to(message, f"📺 {names.split('\n')[0]}\n🔗 {link}")
             return
+
+def process_add_admin(message):
+    try:
+        parts = message.text.split(',')
+        new_id = int(parts[0].strip())
+        name = parts[1].strip()
+        conn = sqlite3.connect('anime.db')
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO admins_v2 (user_id, name) VALUES (?, ?)", (new_id, name))
+        conn.commit(); conn.close()
+        bot.reply_to(message, f"✅ تم إضافة المشرف: {name}")
+    except: bot.reply_to(message, "⚠️ خطأ في الصيغة.")
 
 if __name__ == '__main__':
     bot.infinity_polling()
