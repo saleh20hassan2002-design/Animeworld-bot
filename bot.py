@@ -4,7 +4,7 @@ import sqlite3
 import difflib
 from telebot import types
 
-# جلب التوكن من متغيرات البيئة (تأكد من إضافته في إعدادات Render)
+# جلب التوكن من متغيرات البيئة
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 OWNER_ID = 5577477357
@@ -49,9 +49,6 @@ def send_welcome(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
-    # طباعة للاختبار في الـ Logs
-    print(f"DEBUG: Data: {call.data}, User: {call.from_user.id}")
-    
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "عذراً، هذه الأزرار للمشرفين فقط!")
         return
@@ -80,7 +77,7 @@ def callback_handler(call):
         except Exception as e:
             bot.send_message(call.message.chat.id, f"خطأ في النسخ الاحتياطي: {e}")
     elif call.data == "restore":
-        bot.send_message(call.message.chat.id, "أرسل ملف قاعدة البيانات (anime.db) الآن:")
+        bot.send_message(call.message.chat.id, "أرسل ملف قاعدة البيانات (anime.db) الآن كملف:")
         bot.register_next_step_handler(call.message, process_restore)
     elif call.data == "list_anime":
         conn = sqlite3.connect('anime.db')
@@ -107,13 +104,16 @@ def save_anime_data(message, link):
 
 def process_restore(message):
     if message.document:
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        with open('anime.db', 'wb') as new_file:
-            new_file.write(downloaded_file)
-        bot.reply_to(message, "✅ تم استرداد قاعدة البيانات بنجاح!")
+        try:
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            with open('anime.db', 'wb') as new_file:
+                new_file.write(downloaded_file)
+            bot.reply_to(message, "✅ تم استرداد قاعدة البيانات بنجاح!")
+        except Exception as e:
+            bot.reply_to(message, f"❌ خطأ أثناء الاسترداد: {e}")
     else:
-        bot.reply_to(message, "خطأ: يجب إرسال ملف بصيغة .db")
+        bot.reply_to(message, "⚠️ خطأ: يجب إرسال ملف (Document) وليس رسالة نصية.")
 
 def save_new_admin(message):
     try:
