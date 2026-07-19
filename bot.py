@@ -4,7 +4,7 @@ import sqlite3
 import difflib
 from telebot import types
 
-# جلب التوكن من متغيرات البيئة
+# جلب التوكن من متغيرات البيئة (تأكد من إضافته في إعدادات Render)
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 OWNER_ID = 5577477357
@@ -14,15 +14,15 @@ def init_db():
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS anime (link TEXT PRIMARY KEY, names TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)''')
-    # إضافة المالك كأول مشرف
     cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (OWNER_ID,))
     conn.commit()
     conn.close()
 
-# تشغيل التهيئة عند بداية الكود
 init_db()
 
 def is_admin(user_id):
+    if user_id == OWNER_ID:
+        return True
     conn = sqlite3.connect('anime.db')
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM admins WHERE user_id = ?", (user_id,))
@@ -49,12 +49,13 @@ def send_welcome(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
-    # التحقق من صلاحية المشرف
+    # طباعة للاختبار في الـ Logs
+    print(f"DEBUG: Data: {call.data}, User: {call.from_user.id}")
+    
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "عذراً، هذه الأزرار للمشرفين فقط!")
         return
     
-    # حماية أوامر المالك
     if call.data in ["delete_anime", "admin_panel", "backup", "restore", "list_anime"] and call.from_user.id != OWNER_ID:
         bot.answer_callback_query(call.id, "هذه الصلاحية للمالك فقط!")
         return
@@ -90,8 +91,50 @@ def callback_handler(call):
         text = "📋 قائمة الأنميات:\n\n" + "\n".join(animes) if animes else "القائمة فارغة."
         bot.send_message(call.message.chat.id, text)
 
-# [بقية الدوال كما هي...]
-# ملاحظة: تأكد من إبقاء الدوال الأخرى (get_names_for_link, save_anime_data, إلخ) أسفل هذا الكود.
+def get_names_for_link(message):
+    link = message.text
+    bot.send_message(message.chat.id, "أرسل الأسماء (كل اسم في سطر):")
+    bot.register_next_step_handler(message, lambda m: save_anime_data(m, link))
+
+def save_anime_data(message, link):
+    names = message.text.replace(',', '\n')
+    conn = sqlite3.connect('anime.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO anime (link, names) VALUES (?, ?)", (link, names))
+    conn.commit()
+    conn.close()
+    bot.reply_to(message, "✅ تم الحفظ بنجاح!")
+
+def process_restore(message):
+    if message.document:
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        with open('anime.db', 'wb') as new_file:
+            new_file.write(downloaded_file)
+        bot.reply_to(message, "✅ تم استرداد قاعدة البيانات بنجاح!")
+    else:
+        bot.reply_to(message, "خطأ: يجب إرسال ملف بصيغة .db")
+
+def save_new_admin(message):
+    try:
+        new_id = int(message.text)
+        conn = sqlite3.connect('anime.db')
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (new_id,))
+        conn.commit()
+        conn.close()
+        bot.reply_to(message, f"✅ تمت إضافة {new_id}!")
+    except:
+        bot.reply_to(message, "خطأ في الـ ID.")
+
+def delete_anime_db(message):
+    link = message.text
+    conn = sqlite3.connect('anime.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM anime WHERE link = ?", (link,))
+    conn.commit()
+    conn.close()
+    bot.reply_to(message, "🗑 تم الحذف.")
 
 @bot.message_handler(func=lambda message: not message.text.startswith('/'))
 def search_anime(message):
@@ -101,7 +144,6 @@ def search_anime(message):
     cursor.execute("SELECT link, names FROM anime")
     all_anime = cursor.fetchall()
     conn.close()
-    
     for link, names in all_anime:
         name_list = [n.strip().lower() for n in names.split('\n')]
         for name in name_list:
@@ -110,6 +152,5 @@ def search_anime(message):
                 bot.reply_to(message, f"✨ تم العثور على الأنمي!\n\n📺 الاسم: {display_name}\n🔗 {link}")
                 return
 
-# التصحيح الأهم هنا:
 if __name__ == '__main__':
     bot.infinity_polling()
