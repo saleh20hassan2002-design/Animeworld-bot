@@ -63,10 +63,10 @@ def get_permissions_keyboard(admin_id):
 
 def main_menu(user_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
+    if has_permission(user_id, 'can_add_anime'):
+        markup.add(types.InlineKeyboardButton("➕ إضافة أنمي", callback_data="add_new"),
+                   types.InlineKeyboardButton("✏️ تعديل أنمي", callback_data="edit_anime"))
     buttons = []
-    if has_permission(user_id, 'can_add_anime'): 
-        markup.add(types.InlineKeyboardButton("➕ إضافة أنمي", callback_data="add_new"))
-        markup.add(types.InlineKeyboardButton("✏️ تعديل أنمي", callback_data="edit_anime"))
     if has_permission(user_id, 'can_delete_anime'): buttons.append(types.InlineKeyboardButton("➖ حذف أنمي", callback_data="delete_anime"))
     if has_permission(user_id, 'can_manage_admins'): buttons.append(types.InlineKeyboardButton("🛡 المشرفين", callback_data="admin_panel"))
     if has_permission(user_id, 'can_backup'): buttons.append(types.InlineKeyboardButton("💾 نسخ احتياطي", callback_data="backup"))
@@ -104,7 +104,6 @@ def callback_handler(call):
         bot.edit_message_text("القائمة الرئيسية:", call.message.chat.id, call.message.message_id, reply_markup=main_menu(user_id))
         return
     
-    # --- تعديل البيانات ---
     if call.data == "edit_anime":
         if has_permission(user_id, 'can_add_anime'):
             bot.send_message(call.message.chat.id, "أرسل رابط الأنمي الذي تريد تعديله:")
@@ -133,9 +132,6 @@ def callback_handler(call):
         cursor.execute("SELECT user_id, name FROM admins_v2 WHERE user_id != ?", (OWNER_ID,))
         admins = cursor.fetchall()
         conn.close()
-        if not admins:
-            bot.answer_callback_query(call.id, "لا يوجد مشرفين لحذفهم!", show_alert=True)
-            return
         markup = types.InlineKeyboardMarkup(row_width=1)
         for adm_id, name in admins:
             markup.add(types.InlineKeyboardButton(f"🗑 حذف: {name}", callback_data=f"del_user:{adm_id}"))
@@ -158,9 +154,6 @@ def callback_handler(call):
         cursor.execute("SELECT user_id, name FROM admins_v2 WHERE user_id != ?", (OWNER_ID,))
         admins = cursor.fetchall()
         conn.close()
-        if not admins:
-            bot.answer_callback_query(call.id, "لا يوجد مشرفين لتعديلهم!", show_alert=True)
-            return
         markup = types.InlineKeyboardMarkup(row_width=1)
         for adm_id, name in admins:
             markup.add(types.InlineKeyboardButton(f"👤 {name}", callback_data=f"edit_perm_user:{adm_id}"))
@@ -200,7 +193,7 @@ def callback_handler(call):
         if has_permission(user_id, 'can_backup'):
             try:
                 with open('anime.db', 'rb') as f: bot.send_document(call.message.chat.id, f)
-            except Exception as e: bot.send_message(call.message.chat.id, f"خطأ: {e}")
+            except: bot.send_message(call.message.chat.id, "خطأ في النسخ الاحتياطي")
         else: bot.answer_callback_query(call.id, "لا تملك صلاحية النسخ الاحتياطي!")
 
     elif call.data == "restore":
@@ -244,16 +237,18 @@ def update_anime_db(message, link):
 
 def process_add_admin(message):
     try:
-        parts = message.text.split(',')
+        text = message.text.replace('،', ',')
+        parts = text.split(',')
+        if len(parts) < 2: raise ValueError
         new_id = int(parts[0].strip())
-        name = parts[1].strip() if len(parts) > 1 else "بدون اسم"
+        name = parts[1].strip()
         conn = sqlite3.connect('anime.db')
         cursor = conn.cursor()
         cursor.execute("INSERT OR REPLACE INTO admins_v2 (user_id, name) VALUES (?, ?)", (new_id, name))
         conn.commit()
         conn.close()
-        bot.reply_to(message, "✅ تم إضافة المشرف!")
-    except: bot.reply_to(message, "⚠️ خطأ في الصيغة.")
+        bot.reply_to(message, f"✅ تم إضافة المشرف: {name}")
+    except: bot.reply_to(message, "⚠️ خطأ في الصيغة. أرسل بالشكل: 12345,الاسم")
 
 def get_names_for_link(message):
     link = message.text
