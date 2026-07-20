@@ -242,10 +242,20 @@ def process_restore(message):
         try:
             file_info = bot.get_file(message.document.file_id)
             downloaded_file = bot.download_file(file_info.file_path)
-            with open('anime.db', 'wb') as new_file: new_file.write(downloaded_file)
-            bot.reply_to(message, "✅ تم الاسترداد!")
-        except Exception as e: bot.reply_to(message, f"❌ خطأ: {e}")
-    else: bot.reply_to(message, "⚠️ يجب إرسال ملف .db")
+
+            # استبدال قاعدة البيانات
+            with open('anime.db', 'wb') as new_file:
+                new_file.write(downloaded_file)
+
+            # إنشاء أي جداول ناقصة (مثل admins_v2)
+            init_db()
+
+            bot.reply_to(message, "✅ تم استرداد قاعدة البيانات بنجاح!")
+
+        except Exception as e:
+            bot.reply_to(message, f"❌ خطأ: {e}")
+    else:
+        bot.reply_to(message, "⚠️ يجب إرسال ملف anime.db")
 
 def delete_anime_db(message):
     link = message.text
