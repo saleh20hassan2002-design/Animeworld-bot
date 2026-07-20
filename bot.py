@@ -46,10 +46,8 @@ def get_permissions_keyboard(admin_id):
     cursor.execute("SELECT * FROM admins_v2 WHERE user_id = ?", (admin_id,))
     admin = cursor.fetchone()
     conn.close()
-    
     if not admin:
         return None
-        
     perms = {
         'المشرفين': ('can_manage_admins', admin[2]),
         'إضافة أنمي': ('can_add_anime', admin[3]),
@@ -58,7 +56,6 @@ def get_permissions_keyboard(admin_id):
         'استرداد': ('can_restore', admin[6]),
         'القائمة': ('can_list', admin[7])
     }
-    
     markup = types.InlineKeyboardMarkup(row_width=1)
     for text, (col, val) in perms.items():
         icon = "✅" if val == 1 else "❌"
@@ -68,49 +65,36 @@ def get_permissions_keyboard(admin_id):
 
 def main_menu(user_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
-    buttons = []
-    
     if has_permission(user_id, 'can_add_anime'):
         markup.add(
             types.InlineKeyboardButton("➕ إضافة أنمي", callback_data="add_new"),
             types.InlineKeyboardButton("✏️ تعديل أنمي", callback_data="edit_anime")
         )
-        
-    if has_permission(user_id, 'can_delete_anime'):
-        buttons.append(types.InlineKeyboardButton("➖ حذف أنمي", callback_data="delete_anime"))
-    if has_permission(user_id, 'can_manage_admins'):
-        buttons.append(types.InlineKeyboardButton("🛡 المشرفين", callback_data="admin_panel"))
-    if has_permission(user_id, 'can_backup'):
-        buttons.append(types.InlineKeyboardButton("💾 نسخ احتياطي", callback_data="backup"))
-    if has_permission(user_id, 'can_restore'):
-        buttons.append(types.InlineKeyboardButton("🔄 استرداد", callback_data="restore"))
-    if has_permission(user_id, 'can_list'):
-        buttons.append(types.InlineKeyboardButton("📋 القائمة", callback_data="list_anime"))
-        
+    buttons = []
+    if has_permission(user_id, 'can_delete_anime'): buttons.append(types.InlineKeyboardButton("➖ حذف أنمي", callback_data="delete_anime"))
+    if has_permission(user_id, 'can_manage_admins'): buttons.append(types.InlineKeyboardButton("🛡 المشرفين", callback_data="admin_panel"))
+    if has_permission(user_id, 'can_backup'): buttons.append(types.InlineKeyboardButton("💾 نسخ احتياطي", callback_data="backup"))
+    if has_permission(user_id, 'can_restore'): buttons.append(types.InlineKeyboardButton("🔄 استرداد", callback_data="restore"))
+    if has_permission(user_id, 'can_list'): buttons.append(types.InlineKeyboardButton("📋 القائمة", callback_data="list_anime"))
     for i in range(0, len(buttons), 2):
-        if i + 1 < len(buttons):
-            markup.add(buttons[i], buttons[i+1])
-        else:
-            markup.add(buttons[i])
-            
+        if i + 1 < len(buttons): markup.add(buttons[i], buttons[i+1])
+        else: markup.add(buttons[i])
     return markup
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    bot.clear_step_handler(message)
     bot.send_message(message.chat.id, "مرحباً بك! اختر إجراءً:", reply_markup=main_menu(message.from_user.id))
 
 @bot.message_handler(func=lambda message: message.text and not message.text.startswith('/'))
 def search_anime_smart(message):
     query = message.text.lower().strip()
-    if len(query) < 3:
-        return
-        
+    if len(query) < 3: return
     conn = sqlite3.connect('anime.db')
     cursor = conn.cursor()
     cursor.execute("SELECT link, names FROM anime")
     all_anime = cursor.fetchall()
     conn.close()
-    
     for link, names in all_anime:
         name_list = [n.strip().lower() for n in names.split('\n')]
         if any(query in name or difflib.SequenceMatcher(None, query, name).ratio() > 0.8 for name in name_list):
@@ -121,51 +105,40 @@ def search_anime_smart(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.from_user.id
+    message = call.message
+    bot.clear_step_handler(message)
     
     if call.data == "back_to_main":
-        bot.edit_message_text("القائمة الرئيسية:", call.message.chat.id, call.message.message_id, reply_markup=main_menu(user_id))
-        return
-    
-    if call.data == "edit_anime":
+        bot.edit_message_text("القائمة الرئيسية:", message.chat.id, message.message_id, reply_markup=main_menu(user_id))
+    elif call.data == "edit_anime":
         if has_permission(user_id, 'can_add_anime'):
-            bot.send_message(call.message.chat.id, "أرسل رابط الأنمي الذي تريد تعديله:")
-            bot.register_next_step_handler(call.message, edit_anime_flow)
-        else:
-            bot.answer_callback_query(call.id, "لا تملك صلاحية الإضافة/التعديل!")
-        return
-
-    if call.data == "admin_panel":
+            bot.send_message(message.chat.id, "أرسل رابط الأنمي الذي تريد تعديله:")
+            bot.register_next_step_handler(message, edit_anime_flow)
+        else: bot.answer_callback_query(call.id, "لا تملك صلاحية الإضافة/التعديل!")
+    elif call.data == "admin_panel":
         if not has_permission(user_id, 'can_manage_admins'):
             bot.answer_callback_query(call.id, "عذراً، ليس لديك صلاحية المشرفين!", show_alert=True)
             return
-            
         markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            types.InlineKeyboardButton("➕ إضافة مشرف", callback_data="add_admin_prompt"),
-            types.InlineKeyboardButton("➖ حذف مشرف", callback_data="del_admin_prompt"),
-            types.InlineKeyboardButton("⚙️ صلاحيات المشرفين", callback_data="edit_perms_list"),
-            types.InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
-        )
-        bot.edit_message_text("🛡 لوحة تحكم المشرفين:", call.message.chat.id, call.message.message_id, reply_markup=markup)
-
+        markup.add(types.InlineKeyboardButton("➕ إضافة مشرف", callback_data="add_admin_prompt"),
+                   types.InlineKeyboardButton("➖ حذف مشرف", callback_data="del_admin_prompt"),
+                   types.InlineKeyboardButton("⚙️ صلاحيات المشرفين", callback_data="edit_perms_list"),
+                   types.InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main"))
+        bot.edit_message_text("🛡 لوحة تحكم المشرفين:", message.chat.id, message.message_id, reply_markup=markup)
     elif call.data == "add_admin_prompt":
-        bot.send_message(call.message.chat.id, "أرسل ID واسم المشرف (مثال: 12345,الاسم):")
-        bot.register_next_step_handler(call.message, process_add_admin)
-
+        bot.send_message(message.chat.id, "أرسل ID واسم المشرف (مثال: 12345,الاسم):")
+        bot.register_next_step_handler(message, process_add_admin)
     elif call.data == "del_admin_prompt":
         conn = sqlite3.connect('anime.db')
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, name FROM admins_v2 WHERE user_id != ?", (OWNER_ID,))
         admins = cursor.fetchall()
         conn.close()
-        
         markup = types.InlineKeyboardMarkup(row_width=1)
         for adm_id, name in admins:
             markup.add(types.InlineKeyboardButton(f"🗑 حذف: {name}", callback_data=f"del_user:{adm_id}"))
         markup.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_panel"))
-        
-        bot.edit_message_text("اختر المشرف الذي تريد حذفه:", call.message.chat.id, call.message.message_id, reply_markup=markup)
-
+        bot.edit_message_text("اختر المشرف الذي تريد حذفه:", message.chat.id, message.message_id, reply_markup=markup)
     elif call.data.startswith("del_user:"):
         target_id = int(call.data.split(":")[1])
         conn = sqlite3.connect('anime.db')
@@ -173,32 +146,25 @@ def callback_handler(call):
         cursor.execute("DELETE FROM admins_v2 WHERE user_id = ?", (target_id,))
         conn.commit()
         conn.close()
-        
-        bot.answer_callback_query(call.id, "تم حذف المشرف بنجاح!", show_alert=True)
-        bot.edit_message_text("القائمة الرئيسية:", call.message.chat.id, call.message.message_id, reply_markup=main_menu(user_id))
-
+        bot.answer_callback_query(call.id, "تم حذف المشرف!", show_alert=True)
+        bot.edit_message_text("القائمة الرئيسية:", message.chat.id, message.message_id, reply_markup=main_menu(user_id))
     elif call.data == "edit_perms_list":
         conn = sqlite3.connect('anime.db')
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, name FROM admins_v2 WHERE user_id != ?", (OWNER_ID,))
         admins = cursor.fetchall()
         conn.close()
-        
         markup = types.InlineKeyboardMarkup(row_width=1)
         for adm_id, name in admins:
             markup.add(types.InlineKeyboardButton(f"👤 {name}", callback_data=f"edit_perm_user:{adm_id}"))
         markup.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_panel"))
-        
-        bot.edit_message_text("اختر المشرف لتعديل صلاحياته:", call.message.chat.id, call.message.message_id, reply_markup=markup)
-
+        bot.edit_message_text("اختر المشرف:", message.chat.id, message.message_id, reply_markup=markup)
     elif call.data.startswith("edit_perm_user:"):
         target_id = int(call.data.split(":")[1])
-        bot.edit_message_text(f"⚙️ تحكم بصلاحيات المستخدم ({target_id}):", call.message.chat.id, call.message.message_id, reply_markup=get_permissions_keyboard(target_id))
-
+        bot.edit_message_text(f"⚙️ صلاحيات ({target_id}):", message.chat.id, message.message_id, reply_markup=get_permissions_keyboard(target_id))
     elif call.data.startswith("perm:"):
         _, target_id, perm_col = call.data.split(":")
         target_id = int(target_id)
-        
         conn = sqlite3.connect('anime.db')
         cursor = conn.cursor()
         cursor.execute(f"SELECT {perm_col} FROM admins_v2 WHERE user_id = ?", (target_id,))
@@ -207,40 +173,28 @@ def callback_handler(call):
         cursor.execute(f"UPDATE admins_v2 SET {perm_col} = ? WHERE user_id = ?", (new_val, target_id))
         conn.commit()
         conn.close()
-        
-        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=get_permissions_keyboard(target_id))
-
+        bot.edit_message_reply_markup(message.chat.id, message.message_id, reply_markup=get_permissions_keyboard(target_id))
     elif call.data == "add_new":
         if has_permission(user_id, 'can_add_anime'):
-            bot.send_message(call.message.chat.id, "أرسل رابط الأنمي:")
-            bot.register_next_step_handler(call.message, get_names_for_link)
-        else:
-            bot.answer_callback_query(call.id, "لا تملك صلاحية الإضافة!")
-            
+            bot.send_message(message.chat.id, "أرسل رابط الأنمي:")
+            bot.register_next_step_handler(message, get_names_for_link)
+        else: bot.answer_callback_query(call.id, "لا تملك صلاحية!")
     elif call.data == "delete_anime":
         if has_permission(user_id, 'can_delete_anime'):
-            bot.send_message(call.message.chat.id, "أرسل رابط الأنمي للحذف:")
-            bot.register_next_step_handler(call.message, delete_anime_db)
-        else:
-            bot.answer_callback_query(call.id, "لا تملك صلاحية الحذف!")
-
+            bot.send_message(message.chat.id, "أرسل رابط الأنمي:")
+            bot.register_next_step_handler(message, delete_anime_db)
+        else: bot.answer_callback_query(call.id, "لا تملك صلاحية!")
     elif call.data == "backup":
         if has_permission(user_id, 'can_backup'):
             try:
-                with open('anime.db', 'rb') as f:
-                    bot.send_document(call.message.chat.id, f)
-            except:
-                bot.send_message(call.message.chat.id, "خطأ في النسخ الاحتياطي")
-        else:
-            bot.answer_callback_query(call.id, "لا تملك صلاحية النسخ الاحتياطي!")
-
+                with open('anime.db', 'rb') as f: bot.send_document(message.chat.id, f)
+            except: bot.send_message(message.chat.id, "خطأ!")
+        else: bot.answer_callback_query(call.id, "لا تملك صلاحية!")
     elif call.data == "restore":
         if has_permission(user_id, 'can_restore'):
-            bot.send_message(call.message.chat.id, "أرسل ملف قاعدة البيانات (anime.db) الآن:")
-            bot.register_next_step_handler(call.message, process_restore)
-        else:
-            bot.answer_callback_query(call.id, "لا تملك صلاحية الاسترداد!")
-
+            bot.send_message(message.chat.id, "أرسل ملف .db:")
+            bot.register_next_step_handler(message, process_restore)
+        else: bot.answer_callback_query(call.id, "لا تملك صلاحية!")
     elif call.data == "list_anime":
         if has_permission(user_id, 'can_list'):
             conn = sqlite3.connect('anime.db')
@@ -248,10 +202,9 @@ def callback_handler(call):
             cursor.execute("SELECT names FROM anime")
             animes = [a[0].split('\n')[0] for a in cursor.fetchall()]
             conn.close()
-            text = "📋 قائمة الأنميات:\n\n" + "\n".join(animes) if animes else "القائمة فارغة."
-            bot.send_message(call.message.chat.id, text)
-        else:
-            bot.answer_callback_query(call.id, "لا تملك صلاحية عرض القائمة!")
+            text = "📋 القائمة:\n\n" + "\n".join(animes) if animes else "فارغة."
+            bot.send_message(message.chat.id, text)
+        else: bot.answer_callback_query(call.id, "لا تملك صلاحية!")
 
 def edit_anime_flow(message):
     link = message.text
@@ -260,12 +213,10 @@ def edit_anime_flow(message):
     cursor.execute("SELECT names FROM anime WHERE link = ?", (link,))
     res = cursor.fetchone()
     conn.close()
-    
     if not res:
-        bot.reply_to(message, "⚠️ الرابط غير موجود في القاعدة.")
+        bot.reply_to(message, "⚠️ الرابط غير موجود.")
         return
-        
-    bot.send_message(message.chat.id, f"الأنمي الحالي: {res[0]}\nأرسل الأسماء الجديدة (كل اسم في سطر):")
+    bot.send_message(message.chat.id, "أرسل الأسماء الجديدة:")
     bot.register_next_step_handler(message, lambda m: update_anime_db(m, link))
 
 def update_anime_db(message, link):
@@ -275,31 +226,26 @@ def update_anime_db(message, link):
     cursor.execute("UPDATE anime SET names = ? WHERE link = ?", (new_names, link))
     conn.commit()
     conn.close()
-    bot.reply_to(message, "✅ تم تحديث بيانات الأنمي بنجاح!")
+    bot.reply_to(message, "✅ تم التحديث!")
 
 def process_add_admin(message):
     try:
         text = message.text.replace('،', ',')
         parts = text.split(',')
-        if len(parts) < 2:
-            raise ValueError
-            
+        if len(parts) < 2: raise ValueError
         new_id = int(parts[0].strip())
         name = parts[1].strip()
-        
         conn = sqlite3.connect('anime.db')
         cursor = conn.cursor()
         cursor.execute("INSERT OR REPLACE INTO admins_v2 (user_id, name) VALUES (?, ?)", (new_id, name))
         conn.commit()
         conn.close()
-        
         bot.reply_to(message, f"✅ تم إضافة المشرف: {name}")
-    except:
-        bot.reply_to(message, "⚠️ خطأ في الصيغة. أرسل بالشكل: 12345,الاسم")
+    except: bot.reply_to(message, "⚠️ خطأ! استخدم: 12345,الاسم")
 
 def get_names_for_link(message):
     link = message.text
-    bot.send_message(message.chat.id, "أرسل الأسماء (كل اسم في سطر):")
+    bot.send_message(message.chat.id, "أرسل الأسماء:")
     bot.register_next_step_handler(message, lambda m: save_anime_data(m, link))
 
 def save_anime_data(message, link):
@@ -309,30 +255,23 @@ def save_anime_data(message, link):
     cursor.execute("INSERT OR REPLACE INTO anime (link, names) VALUES (?, ?)", (link, names))
     conn.commit()
     conn.close()
-    
     bot.reply_to(message, "✅ تم الحفظ!")
 
 def process_restore(message):
     if message.document:
         try:
             file_info = bot.get_file(message.document.file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            with open('anime.db', 'wb') as new_file:
-                new_file.write(downloaded_file)
+            with open('anime.db', 'wb') as new_file: new_file.write(bot.download_file(file_info.file_path))
             bot.reply_to(message, "✅ تم الاسترداد!")
-        except Exception as e:
-            bot.reply_to(message, f"❌ خطأ: {e}")
-    else:
-        bot.reply_to(message, "⚠️ يجب إرسال ملف .db")
+        except Exception as e: bot.reply_to(message, f"❌ خطأ: {e}")
+    else: bot.reply_to(message, "⚠️ يجب إرسال ملف .db")
 
 def delete_anime_db(message):
-    link = message.text
     conn = sqlite3.connect('anime.db')
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM anime WHERE link = ?", (link,))
+    cursor.execute("DELETE FROM anime WHERE link = ?", (message.text,))
     conn.commit()
     conn.close()
-    
     bot.reply_to(message, "🗑 تم الحذف.")
 
 if __name__ == '__main__':
